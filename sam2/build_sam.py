@@ -105,11 +105,18 @@ def build_sam2_video_predictor(
     hydra_overrides_extra=[],
     apply_postprocessing=True,
     vos_optimized=False,
+    trt_optimized=False,
     **kwargs,
 ):
-    hydra_overrides = [
-        "++model._target_=sam2.sam2_video_predictor.SAM2VideoPredictor",
-    ]
+    if trt_optimized:
+        hydra_overrides = [
+            "++model._target_=trt_realsense.trt_base.SAM2VideoPredictor_TRT",
+        ]
+    else:
+        hydra_overrides = [
+            "++model._target_=sam2.sam2_video_predictor.SAM2VideoPredictor",
+        ]
+
     if vos_optimized:
         hydra_overrides = [
             "++model._target_=sam2.sam2_video_predictor.SAM2VideoPredictorVOS",
@@ -134,7 +141,15 @@ def build_sam2_video_predictor(
     cfg = compose(config_name=config_file, overrides=hydra_overrides)
     OmegaConf.resolve(cfg)
     model = instantiate(cfg.model, _recursive_=True)
-    _load_checkpoint(model, ckpt_path)
+    if trt_optimized:
+        logging.info("Using TensorRT-optimized SAM 2 Video Predictor")
+        print("Using TensorRT-optimized SAM 2 Video Predictor")
+        _load_checkpoint_trt(model, ckpt_path)
+    else:
+        print("Using standard SAM 2 Video Predictor")
+        logging.info("Using standard SAM 2 Video Predictor")
+        _load_checkpoint(model, ckpt_path)
+
     model = model.to(device)
     if mode == "eval":
         model.eval()
@@ -165,6 +180,19 @@ def _load_checkpoint(model, ckpt_path):
     if ckpt_path is not None:
         sd = torch.load(ckpt_path, map_location="cpu", weights_only=True)["model"]
         missing_keys, unexpected_keys = model.load_state_dict(sd)
+        if missing_keys:
+            logging.error(missing_keys)
+            raise RuntimeError()
+        if unexpected_keys:
+            logging.error(unexpected_keys)
+            raise RuntimeError()
+        logging.info("Loaded checkpoint sucessfully")
+
+
+def _load_checkpoint_trt(model, ckpt_path):
+    if ckpt_path is not None:
+        sd = torch.load(ckpt_path, map_location="cpu", weights_only=True)
+        missing_keys, unexpected_keys = model.memory_attention.load_state_dict(sd)
         if missing_keys:
             logging.error(missing_keys)
             raise RuntimeError()
