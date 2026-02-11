@@ -9,3 +9,10 @@ _C.*
 outputs/*
 checkpoints/*.pt
 demo/backend/checkpoints/*.pt
+notebooks/trial.ipynb
+trt_realsense/test.py
+trt_realsense/trial.py
+trt_realsense/trt_video_predictor.py
+*.engine
+*.onnx
+*.onnx.data
