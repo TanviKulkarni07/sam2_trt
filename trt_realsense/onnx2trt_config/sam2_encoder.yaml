@@ -1,0 +1,13 @@
+settings:
+  folder: "../trt_realsense/tiny_engines/"
+  onnx_filename: "sam2_encoder.onnx"
+  engine_folder: "../trt_realsense/new_tiny_engines/"
+  engine_filename: "sam2_encoder.engine"
+  fp16: true
+
+# Format: [min, opt, max]
+proj_shapes:
+  image:
+    - [1, 3, 1024, 1024]
+    - [2, 3, 1024, 1024]
+    - [3, 3, 1024, 1024]

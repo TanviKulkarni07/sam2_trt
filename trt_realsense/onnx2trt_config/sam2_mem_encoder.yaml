@@ -1,0 +1,17 @@
+settings:
+  folder: "../trt_realsense/tiny_engines/"
+  onnx_filename: "sam2_mem_encoder.onnx"
+  engine_folder: "../trt_realsense/new_tiny_engines/"
+  engine_filename: "sam2_mem_encoder.engine"
+  fp16: true
+
+# Format: [min, opt, max]
+proj_shapes:
+  pix_feat:
+    - [1, 256, 64, 64]
+    - [2, 256, 64, 64]
+    - [3, 256, 64, 64]
+  mask_for_mem:
+    - [1, 1, 1024, 1024]  
+    - [2, 1, 1024, 1024]
+    - [3, 1, 1024, 1024]

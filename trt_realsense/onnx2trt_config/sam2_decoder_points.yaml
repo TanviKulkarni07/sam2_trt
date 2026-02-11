@@ -1,0 +1,30 @@
+settings:
+  folder: "../trt_realsense/tiny_engines/"
+  onnx_filename: "sam2_decoder_points.onnx"
+  engine_folder: "../trt_realsense/new_tiny_engines/"
+  engine_filename: "sam2_decoder_points.engine"
+  fp16: true
+
+# Format: [min, opt, max]
+proj_shapes:
+  image_embed:
+    - [1, 256, 64, 64]
+    - [1, 256, 64, 64]
+    - [1, 256, 64, 64]
+  high_res_0:
+    - [1, 32, 256, 256]
+    - [1, 32, 256, 256]
+    - [1, 32, 256, 256]
+  high_res_1:
+    - [1, 64, 128, 128]
+    - [1, 64, 128, 128]
+    - [1, 64, 128, 128]
+  point_coords:
+    - [1, 1, 2]
+    - [1, 4, 2]
+    - [1, 10, 2]
+  point_labels:
+    - [1, 1]
+    - [1, 4]
+    - [1, 10]
+  # masks: [[1, 1, 256, 256], [1, 1, 256, 256], [1, 1, 256, 256]]
