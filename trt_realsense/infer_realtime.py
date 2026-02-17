@@ -284,13 +284,16 @@ class RealTimeApp:
 
         self.predictor.init_online_session(frame0)
 
-        print(f"Running! History limit: {self.predictor.history_limit} frames.")
+        print(
+            "Controls: Left Click = Add Positive Point, Right Click = Add Negative Point, q = Quit"
+        )
+        print(
+            "          n = Add New Object, Tab = Switch Active Object, Space = Reset Tracking"
+        )
 
         try:
             while True:
-                start_event = torch.cuda.Event(enable_timing=True)
-                end_event = torch.cuda.Event(enable_timing=True)
-                start_event.record()
+
                 frames = self.pipeline.wait_for_frames()
                 color_frame = frames.get_color_frame()
                 if not color_frame:
@@ -317,32 +320,6 @@ class RealTimeApp:
                                 frame_bgr[mask] * 0.5 + np.array(color) * 0.5
                             )
 
-                end_event.record()
-                torch.cuda.synchronize()
-                fps = (
-                    1000.0 / start_event.elapsed_time(end_event)
-                    if start_event.elapsed_time(end_event) > 0
-                    else 0
-                )
-                cv2.putText(
-                    frame_bgr,
-                    f"FPS: {int(fps)} | Obj: {self.active_obj}",
-                    (10, 80),
-                    cv2.FONT_HERSHEY_SIMPLEX,
-                    0.7,
-                    (0, 255, 0),
-                    2,
-                )
-
-                cv2.putText(
-                    frame_bgr,
-                    f"Obj: {self.active_obj} | Mem: {len(self.predictor.inference_state['images'])}",
-                    (10, 30),
-                    cv2.FONT_HERSHEY_SIMPLEX,
-                    0.7,
-                    (0, 255, 0),
-                    2,
-                )
                 cv2.imshow("Online SAM 2", frame_bgr)
 
                 key = cv2.waitKey(1)
@@ -355,7 +332,7 @@ class RealTimeApp:
                     curr = keys.index(self.active_obj)
                     self.active_obj = keys[(curr + 1) % len(keys)]
                 elif key == ord(" "):
-                    self.predictor.reset_state(self.predictor.inference_state)
+                    self.predictor.predictor.reset_state(self.predictor.inference_state)
 
         finally:
             self.pipeline.stop()
