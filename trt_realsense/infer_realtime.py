@@ -273,8 +273,13 @@ class RealTimeApp:
 
     def run(self):
         self.pipeline.start(self.config)
-        cv2.namedWindow("Online SAM 2", cv2.WINDOW_AUTOSIZE)
-        cv2.setMouseCallback("Online SAM 2", self.mouse_callback)
+        if args.trt:
+            title = "Realtime SAM 2 (TensorRT Optimized)"
+        else:
+            title = "Realtime SAM 2 (PyTorch)"
+
+        cv2.namedWindow(title, cv2.WINDOW_AUTOSIZE)
+        cv2.setMouseCallback(title, self.mouse_callback)
         cv2.startWindowThread()  # Safe threading for Windows
 
         print("Initializing...")
@@ -290,7 +295,8 @@ class RealTimeApp:
         print(
             "          n = Add New Object, Tab = Switch Active Object, Space = Reset Tracking"
         )
-
+        prev_time = time.time()
+        fps = 0
         try:
             while True:
 
@@ -319,8 +325,29 @@ class RealTimeApp:
                             frame_bgr[mask] = (
                                 frame_bgr[mask] * 0.5 + np.array(color) * 0.5
                             )
+                curr_time = time.time()
+                fps = 1 / (curr_time - prev_time + 1e-6)
+                prev_time = curr_time
 
-                cv2.imshow("Online SAM 2", frame_bgr)
+                # Background Banner for readability
+                cv2.rectangle(frame_bgr, (0, 0), (self.args.width, 40), (40, 40, 40), -1)
+                
+                # Active Object & FPS
+                status_text = f"FPS: {fps:.1f} | Active Obj: {self.active_obj} | Total: {len(self.objects)}"
+                cv2.putText(frame_bgr, status_text, (10, 28), 
+                            cv2.FONT_HERSHEY_COMPLEX, 0.5, (255, 255, 255), 1)
+
+                # Legend at bottom
+                legend = "[N]: New Obj  [Tab]: Switch  [Space]: Reset  [Q]: Quit"
+                cv2.putText(frame_bgr, legend, (10, self.args.height - 15), 
+                            cv2.FONT_HERSHEY_SIMPLEX, 0.4, (0, 0, 0), 1)
+                
+                # Visual Indicator for Active Object Color
+                active_color = self.objects[self.active_obj]["color"]
+                cv2.circle(frame_bgr, (self.args.width - 25, 22), 10, active_color, -1)
+                cv2.circle(frame_bgr, (self.args.width - 25, 22), 10, (255, 255, 255), 2)
+
+                cv2.imshow(title, frame_bgr)
 
                 key = cv2.waitKey(1)
                 if key == ord("q"):

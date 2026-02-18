@@ -1,7 +1,7 @@
 import tensorrt as trt
 import os
 import yaml
-
+import argparse
 
 def load_config(config_path):
     with open(config_path, "r") as f:
@@ -84,12 +84,21 @@ def build_engine(onnx_path, engine_path, dynamic_shapes=None, fp16=True):
         f.write(serialized_engine)
     print(f"Engine saved successfully to {engine_path}")
 
+def parse_args():
+    import argparse
+
+    parser = argparse.ArgumentParser(description="Convert ONNX to TensorRT Engine")
+    parser.add_argument(
+        "--config",
+        type=str,
+        help="Path to the YAML configuration file",
+    )
+    return parser.parse_args()
 
 if __name__ == "__main__":
     # Load configuration
-    settings, proj_shapes, onnx_path, engine_path = load_config(
-        "onnx2trt_config/sam2_proj.yaml"
-    )
+    args = parse_args()
+    settings, proj_shapes, onnx_path, engine_path = load_config(args.config)
 
     print(f"Building engine: {engine_path}")
 

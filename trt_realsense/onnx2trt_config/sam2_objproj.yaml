@@ -1,5 +1,5 @@
 settings:
-  folder: "../trt_realsense/tiny_engines/"
+  folder: "../trt_realsense/tiny_onnx_models/"
   onnx_filename: "sam2_objproj.onnx"
   engine_folder: "../trt_realsense/new_tiny_engines/"
   engine_filename: "sam2_objproj.engine"

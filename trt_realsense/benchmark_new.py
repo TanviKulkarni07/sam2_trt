@@ -8,7 +8,7 @@ import torch
 import matplotlib.pyplot as plt
 from PIL import Image
 from sam2.build_sam import build_sam2_video_predictor
-
+import argparse
 
 def show_mask(mask, ax, obj_id=None, random_color=False):
     if random_color:
@@ -52,103 +52,122 @@ def show_box(box, ax):
         plt.Rectangle((x0, y0), w, h, edgecolor="green", facecolor=(0, 0, 0, 0), lw=2)
     )
 
+def benchmark_interaction(trt_optimized=True):
+    # select the device for computation
+    if torch.cuda.is_available():
+        device = torch.device("cuda")
+    elif torch.backends.mps.is_available():
+        device = torch.device("mps")
+    else:
+        device = torch.device("cpu")
+    print(f"using device: {device}")
 
-# select the device for computation
-if torch.cuda.is_available():
-    device = torch.device("cuda")
-elif torch.backends.mps.is_available():
-    device = torch.device("mps")
-else:
-    device = torch.device("cpu")
-print(f"using device: {device}")
+    if device.type == "cuda":
+        # use bfloat16 for the entire notebook
+        torch.autocast("cuda", dtype=torch.bfloat16).__enter__()
+        if torch.cuda.get_device_properties(0).major >= 8:
+            torch.backends.cuda.matmul.allow_tf32 = True
+            torch.backends.cudnn.allow_tf32 = True
 
-if device.type == "cuda":
-    # use bfloat16 for the entire notebook
-    torch.autocast("cuda", dtype=torch.bfloat16).__enter__()
-    if torch.cuda.get_device_properties(0).major >= 8:
-        torch.backends.cuda.matmul.allow_tf32 = True
-        torch.backends.cudnn.allow_tf32 = True
+    # Set to False to use non-TensorRT model in real-time
+    if trt_optimized:
+        sam2_checkpoint = "checkpoints/sam2_mem_attn_tiny.pt"
+        model_cfg = "configs/sam2.1/sam2.1_hiera_l_trt.yaml"
+    else:
+        print("WARNING: Running non-TensorRT optimized model in Real-Time App.")
+        sam2_checkpoint = "checkpoints/sam2.1_hiera_tiny.pt"
+        model_cfg = "configs/sam2.1/sam2.1_hiera_t.yaml"
 
-trt_optimized = False  # Set to False to use non-TensorRT model in real-time
-if trt_optimized:
-    sam2_checkpoint = "checkpoints/sam2_mem_attn_tiny.pt"
-    model_cfg = "configs/sam2.1/sam2.1_hiera_l_trt.yaml"
-else:
-    print("WARNING: Running non-TensorRT optimized model in Real-Time App.")
-    sam2_checkpoint = "checkpoints/sam2.1_hiera_tiny.pt"
-    model_cfg = "configs/sam2.1/sam2.1_hiera_t.yaml"
+    predictor = build_sam2_video_predictor(
+        model_cfg, sam2_checkpoint, device=device, trt_optimized=trt_optimized
+    )
 
-predictor = build_sam2_video_predictor(
-    model_cfg, sam2_checkpoint, device=device, trt_optimized=trt_optimized
-)
+    # `video_dir` a directory of JPEG frames with filenames like `<frame_index>.jpg`
+    video_dir = "notebooks/videos/bedroom"
 
-# `video_dir` a directory of JPEG frames with filenames like `<frame_index>.jpg`
-video_dir = "notebooks/videos/bedroom"
+    # scan all the JPEG frame names in this directory
+    frame_names = [
+        p
+        for p in os.listdir(video_dir)
+        if os.path.splitext(p)[-1] in [".jpg", ".jpeg", ".JPG", ".JPEG"]
+    ]
+    frame_names.sort(key=lambda p: int(os.path.splitext(p)[0]))
 
-# scan all the JPEG frame names in this directory
-frame_names = [
-    p
-    for p in os.listdir(video_dir)
-    if os.path.splitext(p)[-1] in [".jpg", ".jpeg", ".JPG", ".JPEG"]
-]
-frame_names.sort(key=lambda p: int(os.path.splitext(p)[0]))
+    # take a look the first video frame
+    frame_idx = 0
 
-# take a look the first video frame
-frame_idx = 0
+    inference_state = predictor.init_state(video_path=video_dir)
 
-inference_state = predictor.init_state(video_path=video_dir)
+    ann_frame_idx = 0
+    ann_obj_id = 1
+    prompts = {}
 
-ann_frame_idx = 0
-ann_obj_id = 1
-prompts = {}
+    points = np.array([[210, 350], [250, 220], [200, 250]], dtype=np.float32)
+    labels = np.array([1, 1, 1], np.int32)
+    prompts[ann_obj_id] = points, labels
 
-points = np.array([[210, 350], [250, 220], [200, 250]], dtype=np.float32)
-labels = np.array([1, 1, 1], np.int32)
-prompts[ann_obj_id] = points, labels
+    # --- BENCHMARKING INTERACTION ---
+    start_event = torch.cuda.Event(enable_timing=True)
+    end_event = torch.cuda.Event(enable_timing=True)
+    start_event.record()
+    (out_mask_info, out_obj_ids, out_mask_logits) = predictor.add_new_points_or_box(
+        inference_state=inference_state,
+        frame_idx=ann_frame_idx,
+        obj_id=ann_obj_id,
+        points=points,
+        labels=labels,
+    )
+    end_event.record()
+    torch.cuda.synchronize()
+    interaction_time = start_event.elapsed_time(end_event)
+    fps = 1000.0 / interaction_time if interaction_time > 0 else 0
+    print(f"Obj 1 (3 points) interaction time: {interaction_time:.3f} ms | FPS: {fps:.2f}")
 
-# --- BENCHMARKING INTERACTION ---
-start_event = torch.cuda.Event(enable_timing=True)
-end_event = torch.cuda.Event(enable_timing=True)
-start_event.record()
-(out_mask_info, out_obj_ids, out_mask_logits) = predictor.add_new_points_or_box(
-    inference_state=inference_state,
-    frame_idx=ann_frame_idx,
-    obj_id=ann_obj_id,
-    points=points,
-    labels=labels,
-)
-end_event.record()
-torch.cuda.synchronize()
-interaction_time = start_event.elapsed_time(end_event)
-fps = 1000.0 / interaction_time if interaction_time > 0 else 0
-print(f"Obj 1 (3 points) interaction time: {interaction_time:.3f} ms | FPS: {fps:.2f}")
+    plt.figure(figsize=(9, 6))
+    plt.title(f"frame {ann_frame_idx}")
+    plt.imshow(Image.open(os.path.join(video_dir, frame_names[ann_frame_idx])))
 
-plt.figure(figsize=(9, 6))
-plt.title(f"frame {ann_frame_idx}")
-plt.imshow(Image.open(os.path.join(video_dir, frame_names[ann_frame_idx])))
+    for i, out_obj_id in enumerate(out_obj_ids):
+        show_points(*prompts[out_obj_id], plt.gca())
+        show_mask((out_mask_logits[i] > 0.0).cpu().numpy(), plt.gca(), obj_id=out_obj_id)
+    plt.show()
 
-for i, out_obj_id in enumerate(out_obj_ids):
-    show_points(*prompts[out_obj_id], plt.gca())
-    show_mask((out_mask_logits[i] > 0.0).cpu().numpy(), plt.gca(), obj_id=out_obj_id)
-plt.show()
+    # --- BENCHMARKING PROPAGATION ---
+    print(f"Starting propagation for {len(frame_names)} frames...")
+    start_event = torch.cuda.Event(enable_timing=True)
+    end_event = torch.cuda.Event(enable_timing=True)
+    start_event.record()
 
-# --- BENCHMARKING PROPAGATION ---
-print(f"Starting propagation for {len(frame_names)} frames...")
-start_event = torch.cuda.Event(enable_timing=True)
-end_event = torch.cuda.Event(enable_timing=True)
-start_event.record()
+    video_segments = {}
+    for out_frame_idx, out_obj_ids, out_mask_logits in predictor.propagate_in_video(
+        inference_state
+    ):
+        video_segments[out_frame_idx] = {
+            out_obj_id: (out_mask_logits[i] > 0.0).cpu().numpy()
+            for i, out_obj_id in enumerate(out_obj_ids)
+        }
 
-video_segments = {}
-for out_frame_idx, out_obj_ids, out_mask_logits in predictor.propagate_in_video(
-    inference_state
-):
-    video_segments[out_frame_idx] = {
-        out_obj_id: (out_mask_logits[i] > 0.0).cpu().numpy()
-        for i, out_obj_id in enumerate(out_obj_ids)
-    }
+    end_event.record()
+    torch.cuda.synchronize()
+    total_prop_time = start_event.elapsed_time(end_event)
+    fps = len(frame_names) / (total_prop_time / 1000.0)  # Convert ms to seconds
+    print(f"[Propagation] Total time: {total_prop_time:.2f} ms | Avg FPS: {fps:.2f}")
 
-end_event.record()
-torch.cuda.synchronize()
-total_prop_time = start_event.elapsed_time(end_event)
-fps = len(frame_names) / (total_prop_time / 1000.0)  # Convert ms to seconds
-print(f"[Propagation] Total time: {total_prop_time:.2f} ms | Avg FPS: {fps:.2f}")
+def parse_args():
+    import argparse
+
+    parser = argparse.ArgumentParser(description="Benchmark SAM 2.1 Video Predictor")
+    parser.add_argument(
+        "--trt",
+        action="store_true",
+        help="Use TensorRT optimized model for benchmarking",
+    )
+    return parser.parse_args()
+if __name__ == "__main__":
+    args = parse_args()
+    if args.trt:
+        print("Benchmarking TensorRT Optimized Model:")
+    else:
+        print("Benchmarking Non-TensorRT Optimized Model:")
+
+    benchmark_interaction(trt_optimized=args.trt)
